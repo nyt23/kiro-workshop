@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spinning Wheel</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background-color: #f0f0f0;
+      font-family: Arial, sans-serif;
+    }
+
+    h1 {
+      margin-bottom: 24px;
+      font-size: 2rem;
+      color: #333;
+    }
+
+    .wheel-container {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 24px;
+    }
+
+    canvas#wheelCanvas {
+      display: block;
+      width: 500px;
+      height: 500px;
+    }
+
+    button#spinBtn {
+      padding: 12px 40px;
+      font-size: 1.2rem;
+      font-weight: bold;
+      color: #fff;
+      background-color: #3498db;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+      margin-bottom: 20px;
+    }
+
+    button#spinBtn:hover:not(:disabled) {
+      background-color: #2980b9;
+    }
+
+    button#spinBtn:disabled {
+      background-color: #95a5a6;
+      cursor: not-allowed;
+    }
+
+    #winnerDisplay {
+      font-size: 1.5rem;
+      font-weight: bold;
+      color: #2c3e50;
+      min-height: 2rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>Spinning Wheel</h1>
+
+  <div class="wheel-container">
+    <canvas id="wheelCanvas" width="500" height="500">
+      Your browser does not support canvas.
+    </canvas>
+  </div>
+
+  <button id="spinBtn">Spin</button>
+
+  <div id="winnerDisplay"></div>
+
+  <script>
+    // --- Data model ---
+    const SLOTS = [
+      { name: 'Alice', color: '#e74c3c' },
+      { name: 'Bob',   color: '#e67e22' },
+      { name: 'Carol', color: '#f1c40f' },
+      { name: 'Dave',  color: '#2ecc71' },
+      { name: 'Eve',   color: '#1abc9c' },
+      { name: 'Frank', color: '#3498db' },
+      { name: 'Grace', color: '#9b59b6' },
+      { name: 'Hank',  color: '#e91e63' },
+    ];
+
+    // --- Physics constants ---
+    const FRICTION       = 0.985;  // velocity multiplier per frame (< 1)
+    const STOP_THRESHOLD = 0.001;  // radians/frame below which we consider stopped
+    const MIN_VELOCITY   = 0.3;    // guarantees ≥ 3 full rotations over ≥ 3 s at 60 fps
+
+    // --- Application state ---
+    let rotationAngle = 0;   // current rotation in radians
+    let velocity      = 0;   // radians per frame
+    let spinning      = false;
+
+    // --- Pure functions ---
+
+    /**
+     * Returns the index of the slot aligned with the arrow (angle 0) after
+     * the wheel has rotated by `rotationAngle`.
+     *
+     * @param {number} rotationAngle - Current wheel rotation in radians (any value).
+     * @param {number} slotCount     - Number of equal slots on the wheel.
+     * @returns {number} Integer index in [0, slotCount - 1].
+     */
+    function getWinnerIndex(rotationAngle, slotCount) {
+      const TWO_PI = 2 * Math.PI;
+      // Normalize to [0, 2π)
+      const normalized = ((rotationAngle % TWO_PI) + TWO_PI) % TWO_PI;
+      // The arrow is at angle 0. The wheel has rotated by `normalized`.
+      // Slot 0 starts at angle 0 and spans [0, 2π/slotCount).
+      // After rotation, slot i occupies angles [i * slotAngle + normalized, (i+1) * slotAngle + normalized).
+      // We want the slot whose range contains angle 0 (mod 2π).
+      // Equivalently: which slot index i satisfies (0 - normalized) mod 2π in [i*slotAngle, (i+1)*slotAngle)?
+      const slotAngle = TWO_PI / slotCount;
+      const index = Math.floor(((TWO_PI - normalized) % TWO_PI) / slotAngle);
+      return index % slotCount;
+    }
+
+    /**
+     * Draws the prize wheel onto the canvas.
+     *
+     * @param {CanvasRenderingContext2D} ctx - The 2D rendering context.
+     * @param {number} cx            - X coordinate of the wheel center.
+     * @param {number} cy            - Y coordinate of the wheel center.
+     * @param {number} radius        - Radius of the wheel in pixels.
+     * @param {Array<{name: string, color: string}>} slots - Array of slot objects.
+     * @param {number} rotationAngle - Current rotation offset in radians.
+     */
+    function drawWheel(ctx, cx, cy, radius, slots, rotationAngle) {
+      const TWO_PI   = 2 * Math.PI;
+      const slotAngle = TWO_PI / slots.length;
+
+      slots.forEach(function(slot, i) {
+        const startAngle = rotationAngle + i * slotAngle;
+        const endAngle   = rotationAngle + (i + 1) * slotAngle;
+
+        // --- Draw wedge ---
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, radius, startAngle, endAngle);
+        ctx.closePath();
+        ctx.fillStyle = slot.color;
+        ctx.fill();
+
+        // Thin border between wedges
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.lineWidth   = 1;
+        ctx.stroke();
+
+        // --- Draw participant name ---
+        const midAngle = rotationAngle + (i + 0.5) * slotAngle;
+        const textX    = cx + Math.cos(midAngle) * radius * 0.65;
+        const textY    = cy + Math.sin(midAngle) * radius * 0.65;
+
+        ctx.save();
+        ctx.translate(textX, textY);
+        ctx.rotate(midAngle + Math.PI / 2);
+        ctx.fillStyle    = '#fff';
+        ctx.font         = 'bold 14px Arial';
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(slot.name, 0, 0);
+        ctx.restore();
+      });
+    }
+
+    /**
+     * Draws the fixed arrow indicator at the right edge of the wheel.
+     * The arrow is a filled triangle pointing left (toward the wheel center),
+     * with its tip overlapping the wheel's outer edge.
+     *
+     * @param {CanvasRenderingContext2D} ctx - The 2D rendering context.
+     * @param {number} cx     - X coordinate of the wheel center.
+     * @param {number} cy     - Y coordinate of the wheel center.
+     * @param {number} radius - Radius of the wheel in pixels.
+     */
+    function drawArrow(ctx, cx, cy, radius) {
+      // Tip overlaps the wheel edge; base extends to the right
+      const tipX  = cx + radius - 10;
+      const baseX = cx + radius + 20;
+      const halfH = 15;
+
+      ctx.beginPath();
+      ctx.moveTo(tipX, cy);              // tip — points into the wheel
+      ctx.lineTo(baseX, cy - halfH);     // top-right corner
+      ctx.lineTo(baseX, cy + halfH);     // bottom-right corner
+      ctx.closePath();
+
+      ctx.fillStyle = '#2c3e50';
+      ctx.fill();
+
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth   = 2;
+      ctx.stroke();
+    }
+
+    // --- DOM references (assigned in DOMContentLoaded) ---
+    let canvas, ctx, spinBtn, winnerDisplay;
+
+    /**
+     * Animation loop driven by requestAnimationFrame.
+     * Applies friction each frame, redraws the wheel, and stops when
+     * velocity drops below STOP_THRESHOLD.
+     *
+     * @param {DOMHighResTimeStamp} timestamp - Provided by requestAnimationFrame (unused directly).
+     */
+    function animationLoop(timestamp) {
+      // Apply friction deceleration
+      velocity      *= FRICTION;
+      rotationAngle += velocity;
+
+      // Recompute geometry from canvas dimensions each frame
+      const cx     = canvas.width  / 2;
+      const cy     = canvas.height / 2;
+      const radius = Math.min(canvas.width, canvas.height) / 2 - 30;
+
+      // Clear and redraw
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawWheel(ctx, cx, cy, radius, SLOTS, rotationAngle);
+      drawArrow(ctx, cx, cy, radius);
+
+      if (velocity < STOP_THRESHOLD) {
+        // Wheel has stopped — determine and announce the winner
+        spinning = false;
+        const winnerIdx = getWinnerIndex(rotationAngle, SLOTS.length);
+        winnerDisplay.textContent = 'Winner: ' + SLOTS[winnerIdx].name;
+        spinBtn.disabled = false;
+      } else {
+        requestAnimationFrame(animationLoop);
+      }
+    }
+
+    /**
+     * Initiates a spin when the user clicks the Spin button.
+     * Guards against double-clicks, sets a random initial velocity,
+     * transitions to SPINNING state, and kicks off the animation loop.
+     */
+    function startSpin() {
+      if (spinning) return;  // guard against double-click (belt-and-suspenders)
+
+      // Random extra rotation in [0, 2π) for unpredictability
+      const randomExtra = Math.random() * 2 * Math.PI;
+
+      // Set velocity: MIN_VELOCITY + small random boost for variety
+      velocity = MIN_VELOCITY + Math.random() * 0.1;
+
+      // Transition to SPINNING state
+      spinning = true;
+      spinBtn.disabled = true;
+      winnerDisplay.textContent = '';
+
+      requestAnimationFrame(animationLoop);
+    }
+
+    // --- DOM wiring ---
+    document.addEventListener('DOMContentLoaded', function() {
+      canvas       = document.getElementById('wheelCanvas');
+      ctx          = canvas.getContext('2d');
+      spinBtn      = document.getElementById('spinBtn');
+      winnerDisplay = document.getElementById('winnerDisplay');
+
+      // Render initial wheel state
+      const cx     = canvas.width  / 2;
+      const cy     = canvas.height / 2;
+      const radius = Math.min(canvas.width, canvas.height) / 2 - 30;
+      drawWheel(ctx, cx, cy, radius, SLOTS, rotationAngle);
+      drawArrow(ctx, cx, cy, radius);
+
+      // Wire up the Spin button
+      spinBtn.addEventListener('click', startSpin);
+    });
+  </script>
+</body>
+</html>

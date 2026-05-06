@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spinning Wheel — Tests</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: #f5f5f5;
+      padding: 32px;
+      color: #222;
+    }
+
+    h1 {
+      font-size: 1.6rem;
+      margin-bottom: 24px;
+    }
+
+    #summary {
+      font-size: 1.1rem;
+      font-weight: bold;
+      margin-bottom: 24px;
+      padding: 12px 16px;
+      border-radius: 6px;
+      background: #ddd;
+    }
+
+    #summary.all-pass { background: #d4edda; color: #155724; }
+    #summary.has-fail  { background: #f8d7da; color: #721c24; }
+
+    .suite {
+      margin-bottom: 28px;
+    }
+
+    .suite h2 {
+      font-size: 1rem;
+      font-weight: bold;
+      margin-bottom: 8px;
+      color: #444;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .test {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 8px 12px;
+      margin-bottom: 4px;
+      border-radius: 4px;
+      background: #fff;
+      border-left: 4px solid #ccc;
+      font-size: 0.9rem;
+    }
+
+    .test.pass { border-left-color: #28a745; }
+    .test.fail { border-left-color: #dc3545; background: #fff5f5; }
+
+    .badge {
+      font-weight: bold;
+      min-width: 44px;
+      text-align: center;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 0.8rem;
+    }
+
+    .pass .badge { background: #28a745; color: #fff; }
+    .fail .badge { background: #dc3545; color: #fff; }
+
+    .test-name { flex: 1; }
+    .test-error { color: #dc3545; font-size: 0.82rem; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Spinning Wheel — Test Suite</h1>
+  <div id="summary">Running tests…</div>
+  <div id="results"></div>
+
+  <script type="module">
+    import * as fc from 'https://cdn.jsdelivr.net/npm/fast-check@3/+esm';
+
+    // -------------------------------------------------------------------------
+    // getWinnerIndex — copied inline from index.html (pure function, no DOM deps)
+    // -------------------------------------------------------------------------
+    function getWinnerIndex(rotationAngle, slotCount) {
+      const TWO_PI = 2 * Math.PI;
+      const normalized = ((rotationAngle % TWO_PI) + TWO_PI) % TWO_PI;
+      const slotAngle = TWO_PI / slotCount;
+      const index = Math.floor(((TWO_PI - normalized) % TWO_PI) / slotAngle);
+      return index % slotCount;
+    }
+
+    // -------------------------------------------------------------------------
+    // Minimal test harness
+    // -------------------------------------------------------------------------
+    const suites = [];
+    let currentSuite = null;
+
+    function describe(name, fn) {
+      currentSuite = { name, tests: [] };
+      suites.push(currentSuite);
+      fn();
+      currentSuite = null;
+    }
+
+    function it(name, fn) {
+      const record = { name, status: 'pending', error: null };
+      if (currentSuite) currentSuite.tests.push(record);
+      try {
+        fn();
+        record.status = 'pass';
+      } catch (err) {
+        record.status = 'fail';
+        record.error = err.message || String(err);
+      }
+    }
+
+    function expect(actual) {
+      return {
+        toBe(expected) {
+          if (actual !== expected) {
+            throw new Error(`Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+          }
+        },
+        toBeGreaterThanOrEqual(n) {
+          if (actual < n) throw new Error(`Expected ${actual} >= ${n}`);
+        },
+        toBeLessThan(n) {
+          if (actual >= n) throw new Error(`Expected ${actual} < ${n}`);
+        },
+        toBeInteger() {
+          if (!Number.isInteger(actual)) throw new Error(`Expected integer, got ${actual}`);
+        },
+      };
+    }
+
+    // -------------------------------------------------------------------------
+    // Unit tests — getWinnerIndex examples
+    // -------------------------------------------------------------------------
+    describe('Unit tests: getWinnerIndex', () => {
+      it('getWinnerIndex(0, 8) returns 0', () => {
+        expect(getWinnerIndex(0, 8)).toBe(0);
+      });
+
+      it('getWinnerIndex(2π, 8) returns 0', () => {
+        expect(getWinnerIndex(2 * Math.PI, 8)).toBe(0);
+      });
+
+      it('getWinnerIndex(π, 8) returns 4', () => {
+        expect(getWinnerIndex(Math.PI, 8)).toBe(4);
+      });
+    });
+
+    // -------------------------------------------------------------------------
+    // Property 3: Winner index is always a valid slot
+    // Feature: spinning-wheel, Property 3: Winner index is always a valid slot
+    // Validates: Requirements 6.1
+    // -------------------------------------------------------------------------
+    describe('Property 3: Winner index is always a valid slot', () => {
+      it('for any finite float angle and N in [6,12], result is integer in [0, N-1]', () => {
+        // Feature: spinning-wheel, Property 3: Winner index is always a valid slot
+        fc.assert(
+          fc.property(
+            fc.float({ noNaN: true, noDefaultInfinity: true, min: -1e9, max: 1e9 }),
+            fc.integer({ min: 6, max: 12 }),
+            (angle, N) => {
+              const idx = getWinnerIndex(angle, N);
+              return Number.isInteger(idx) && idx >= 0 && idx < N;
+            }
+          ),
+          { numRuns: 100 }
+        );
+      });
+    });
+
+    // -------------------------------------------------------------------------
+    // Property 4: Winner index is stable under full-rotation offsets
+    // Feature: spinning-wheel, Property 4: Winner index is stable under full-rotation offsets
+    // Validates: Requirements 6.1
+    // -------------------------------------------------------------------------
+    describe('Property 4: Winner index is stable under full-rotation offsets', () => {
+      it('getWinnerIndex(θ, N) === getWinnerIndex(θ + 2π*k, N) for any θ, N, integer k', () => {
+        // Feature: spinning-wheel, Property 4: Winner index is stable under full-rotation offsets
+        fc.assert(
+          fc.property(
+            fc.float({ noNaN: true, noDefaultInfinity: true, min: -1e6, max: 1e6 }),
+            fc.integer({ min: 6, max: 12 }),
+            fc.integer({ min: -10, max: 10 }),
+            (theta, N, k) => {
+              const base    = getWinnerIndex(theta, N);
+              const shifted = getWinnerIndex(theta + 2 * Math.PI * k, N);
+              return base === shifted;
+            }
+          ),
+          { numRuns: 100 }
+        );
+      });
+    });
+
+    // -------------------------------------------------------------------------
+    // Property 5: Every slot is reachable
+    // Feature: spinning-wheel, Property 5: Every slot is reachable
+    // Validates: Requirements 7.2
+    // -------------------------------------------------------------------------
+    describe('Property 5: Every slot is reachable', () => {
+      it('for any N in [6,12] and index i in [0,N-1], there exists θ such that getWinnerIndex(θ, N) === i', () => {
+        // Feature: spinning-wheel, Property 5: Every slot is reachable
+        fc.assert(
+          fc.property(
+            fc.integer({ min: 6, max: 12 }),
+            fc.integer({ min: 0, max: 11 }),   // i may be up to N-1 (max 11)
+            (N, rawI) => {
+              const i = rawI % N;  // clamp to valid range for this N
+              // Construct a canonical angle that should land on slot i.
+              // Slot i is reached when the arrow (at angle 0) falls inside
+              // the wedge for slot i after rotation.
+              // getWinnerIndex uses: index = floor((2π - normalized) / slotAngle)
+              // So for index === i: (2π - normalized) / slotAngle in [i, i+1)
+              // => normalized in (2π - (i+1)*slotAngle, 2π - i*slotAngle]
+              // Pick the midpoint of that range as θ.
+              const slotAngle = (2 * Math.PI) / N;
+              const theta = 2 * Math.PI - (i + 0.5) * slotAngle;
+              return getWinnerIndex(theta, N) === i;
+            }
+          ),
+          { numRuns: 100 }
+        );
+      });
+    });
+
+    // -------------------------------------------------------------------------
+    // Render results
+    // -------------------------------------------------------------------------
+    const resultsEl = document.getElementById('results');
+    const summaryEl = document.getElementById('summary');
+
+    let totalPass = 0;
+    let totalFail = 0;
+
+    for (const suite of suites) {
+      const suiteEl = document.createElement('div');
+      suiteEl.className = 'suite';
+
+      const heading = document.createElement('h2');
+      heading.textContent = suite.name;
+      suiteEl.appendChild(heading);
+
+      for (const test of suite.tests) {
+        const testEl = document.createElement('div');
+        testEl.className = `test ${test.status}`;
+
+        const badge = document.createElement('span');
+        badge.className = 'badge';
+        badge.textContent = test.status === 'pass' ? 'PASS' : 'FAIL';
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'test-name';
+        nameEl.textContent = test.name;
+
+        testEl.appendChild(badge);
+
+        const textWrap = document.createElement('div');
+        textWrap.style.flex = '1';
+        textWrap.appendChild(nameEl);
+
+        if (test.status === 'fail' && test.error) {
+          const errEl = document.createElement('div');
+          errEl.className = 'test-error';
+          errEl.textContent = test.error;
+          textWrap.appendChild(errEl);
+        }
+
+        testEl.appendChild(textWrap);
+        suiteEl.appendChild(testEl);
+
+        if (test.status === 'pass') totalPass++;
+        else totalFail++;
+      }
+
+      resultsEl.appendChild(suiteEl);
+    }
+
+    const total = totalPass + totalFail;
+    summaryEl.textContent = `${totalPass} / ${total} tests passed${totalFail > 0 ? ` — ${totalFail} failed` : ''}`;
+    summaryEl.className = totalFail === 0 ? 'all-pass' : 'has-fail';
+  </script>
+</body>
+</html>
