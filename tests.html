@@ -135,6 +135,16 @@
         toBeInteger() {
           if (!Number.isInteger(actual)) throw new Error(`Expected integer, got ${actual}`);
         },
+        toContain(substring) {
+          if (typeof actual !== 'string' || !actual.includes(substring)) {
+            throw new Error(`Expected ${JSON.stringify(actual)} to contain ${JSON.stringify(substring)}`);
+          }
+        },
+        toMatch(regex) {
+          if (!regex.test(actual)) {
+            throw new Error(`Expected ${JSON.stringify(actual)} to match ${regex}`);
+          }
+        },
       };
     }
 
@@ -229,6 +239,128 @@
           ),
           { numRuns: 100 }
         );
+      });
+    });
+
+    // -------------------------------------------------------------------------
+    // buildRegistrationUrl — copied inline from index.html (pure function)
+    // -------------------------------------------------------------------------
+    function buildRegistrationUrl(sessionId) {
+      return window.location.origin + '/register.html?sessionId=' + sessionId;
+    }
+
+    // -------------------------------------------------------------------------
+    // getSessionId — copied inline from index.html
+    // Reads sessionId from window.location.search; generates a UUID v4 if absent
+    // and updates the URL via history.replaceState.
+    // -------------------------------------------------------------------------
+    function generateSessionId() {
+      if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+      }
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = (Math.random() * 16) | 0;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+      });
+    }
+
+    function getSessionId() {
+      const params = new URLSearchParams(window.location.search);
+      let id = params.get('sessionId');
+      if (!id) {
+        id = generateSessionId();
+        params.set('sessionId', id);
+        const newUrl = window.location.pathname + '?' + params.toString();
+        try {
+          history.replaceState(null, '', newUrl);
+        } catch (e) {
+          // history.replaceState may not be available in all test environments
+        }
+      }
+      return id;
+    }
+
+    // -------------------------------------------------------------------------
+    // handleWinnerEvent — copied inline from register.html
+    // Requires DOM elements: #winnerNotification, #winnerIcon, #winnerText
+    // -------------------------------------------------------------------------
+    function handleWinnerEvent(winnerName, myName) {
+      const notification = document.getElementById('winnerNotification');
+      const icon         = document.getElementById('winnerIcon');
+      const text         = document.getElementById('winnerText');
+
+      if (winnerName === myName) {
+        notification.className = 'you-won';
+        icon.textContent = '🏆';
+        text.textContent = '🎉 You won! Congratulations!';
+      } else {
+        notification.className = 'other-won';
+        icon.textContent = '🎡';
+        text.textContent = 'The winner is: ' + winnerName;
+      }
+
+      notification.style.display = '';
+    }
+
+    // -------------------------------------------------------------------------
+    // Unit tests — new pure functions
+    // -------------------------------------------------------------------------
+
+    // Set up mock DOM elements required by handleWinnerEvent
+    (function setupMockDom() {
+      const notification = document.createElement('div');
+      notification.id = 'winnerNotification';
+      notification.style.display = 'none';
+      document.body.appendChild(notification);
+
+      const icon = document.createElement('div');
+      icon.id = 'winnerIcon';
+      notification.appendChild(icon);
+
+      const text = document.createElement('div');
+      text.id = 'winnerText';
+      notification.appendChild(text);
+    })();
+
+    describe('Unit tests: new pure functions', () => {
+      // 1. buildRegistrationUrl
+      it('buildRegistrationUrl("abc") — URL contains "sessionId=abc"', () => {
+        const url = buildRegistrationUrl('abc');
+        expect(url).toContain('sessionId=abc');
+      });
+
+      it('buildRegistrationUrl("abc") — URL ends with "register.html?sessionId=abc"', () => {
+        const url = buildRegistrationUrl('abc');
+        expect(url).toContain('register.html?sessionId=abc');
+      });
+
+      // 2. getSessionId() with no sessionId param — returns UUID v4 format
+      it('getSessionId() with no sessionId param returns a UUID v4 format string', () => {
+        // Remove any sessionId param that may have been set by a previous test run
+        const cleanUrl = window.location.pathname;
+        try {
+          history.replaceState(null, '', cleanUrl);
+        } catch (e) {
+          // history.replaceState may not be available; skip URL cleanup
+        }
+        const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        const id = getSessionId();
+        expect(id).toMatch(UUID_V4);
+      });
+
+      // 3. handleWinnerEvent("Alice", "Alice") — shows celebration message
+      it('handleWinnerEvent("Alice", "Alice") — shows celebration message', () => {
+        handleWinnerEvent('Alice', 'Alice');
+        const text = document.getElementById('winnerText').textContent;
+        expect(text).toContain('You won');
+      });
+
+      // 4. handleWinnerEvent("Alice", "Bob") — shows winner name announcement
+      it('handleWinnerEvent("Alice", "Bob") — shows winner name containing "Alice"', () => {
+        handleWinnerEvent('Alice', 'Bob');
+        const text = document.getElementById('winnerText').textContent;
+        expect(text).toContain('Alice');
       });
     });
 

@@ -1,0 +1,21 @@
+{
+  "name": "spinning-wheel-lambdas",
+  "version": "1.0.0",
+  "description": "Lambda functions for the Spinning Wheel backend",
+  "main": "registrationHandler.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "3.1044.0",
+    "@aws-sdk/lib-dynamodb": "3.1044.0",
+    "@aws-sdk/client-apigatewaymanagementapi": "3.1044.0"
+  },
+  "devDependencies": {
+    "fast-check": "3.19.0"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "license": "MIT"
+}

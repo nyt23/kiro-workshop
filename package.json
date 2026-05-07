@@ -1,0 +1,17 @@
+{
+  "name": "kiro-workshop",
+  "version": "1.0.0",
+  "description": "Spinning Wheel - Real-time self-registration prize wheel",
+  "private": true,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "sam build",
+    "deploy": "./deploy.sh",
+    "deploy:guided": "sam deploy --guided --profile workshop",
+    "start": "npx serve .",
+    "install:lambdas": "npm install --prefix lambdas"
+  },
+  "license": "MIT"
+}

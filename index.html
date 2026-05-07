@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Spinning Wheel</title>
+  <script src="config.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <style>
     * {
       box-sizing: border-box;
@@ -19,6 +21,7 @@
       min-height: 100vh;
       background-color: #f0f0f0;
       font-family: Arial, sans-serif;
+      padding: 20px;
     }
 
     h1 {
@@ -27,18 +30,97 @@
       color: #333;
     }
 
+    /* Error banners */
+    .error-banner {
+      width: 100%;
+      max-width: 800px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      background-color: #fdecea;
+      border: 1px solid #e74c3c;
+      border-radius: 6px;
+      color: #c0392b;
+      font-size: 0.95rem;
+      text-align: center;
+    }
+
+    /* Main layout: wheel on left, QR panel on right */
+    .main-layout {
+      display: flex;
+      flex-direction: row;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 40px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+
+    .wheel-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
     .wheel-container {
       position: relative;
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-bottom: 24px;
+      margin-bottom: 16px;
     }
 
     canvas#wheelCanvas {
       display: block;
       width: 500px;
       height: 500px;
+    }
+
+    /* QR code panel */
+    .qr-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 20px;
+      background-color: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+      min-width: 240px;
+    }
+
+    .qr-panel h2 {
+      font-size: 1.1rem;
+      color: #333;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    #qrcode {
+      margin-bottom: 12px;
+    }
+
+    #qrLabel {
+      font-size: 0.75rem;
+      color: #666;
+      text-align: center;
+      word-break: break-all;
+      max-width: 220px;
+    }
+
+    #participantCount {
+      margin-top: 16px;
+      font-size: 0.95rem;
+      color: #555;
+      font-weight: bold;
+      text-align: center;
+    }
+
+    /* Buttons row */
+    .button-row {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 20px;
+      align-items: center;
     }
 
     button#spinBtn {
@@ -51,7 +133,6 @@
       border-radius: 8px;
       cursor: pointer;
       transition: background-color 0.2s ease;
-      margin-bottom: 20px;
     }
 
     button#spinBtn:hover:not(:disabled) {
@@ -59,6 +140,27 @@
     }
 
     button#spinBtn:disabled {
+      background-color: #95a5a6;
+      cursor: not-allowed;
+    }
+
+    button#clearBtn {
+      padding: 12px 40px;
+      font-size: 1.2rem;
+      font-weight: bold;
+      color: #fff;
+      background-color: #e74c3c;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+    }
+
+    button#clearBtn:hover:not(:disabled) {
+      background-color: #c0392b;
+    }
+
+    button#clearBtn:disabled {
       background-color: #95a5a6;
       cursor: not-allowed;
     }
@@ -75,40 +177,133 @@
 <body>
   <h1>Spinning Wheel</h1>
 
-  <div class="wheel-container">
-    <canvas id="wheelCanvas" width="500" height="500">
-      Your browser does not support canvas.
-    </canvas>
+  <!-- WebSocket error banner -->
+  <div id="wsError" class="error-banner" style="display:none">
+    ⚠️ WebSocket connection failed. Real-time updates are unavailable. The wheel still works in offline mode.
   </div>
 
-  <button id="spinBtn">Spin</button>
+  <!-- General error banner -->
+  <div id="errorBanner" class="error-banner" style="display:none"></div>
+
+  <!-- Main layout: wheel + QR panel side by side -->
+  <div class="main-layout">
+    <div class="wheel-section">
+      <div class="wheel-container">
+        <canvas id="wheelCanvas" width="500" height="500">
+          Your browser does not support canvas.
+        </canvas>
+      </div>
+    </div>
+
+    <div class="qr-panel">
+      <h2>Scan to Register</h2>
+      <div id="qrcode"></div>
+      <p id="qrLabel"></p>
+      <div id="participantCount">0 participants registered</div>
+    </div>
+  </div>
+
+  <!-- Spin and Clear buttons -->
+  <div class="button-row">
+    <button id="spinBtn">Spin</button>
+    <button id="clearBtn">Clear</button>
+  </div>
 
   <div id="winnerDisplay"></div>
 
   <script>
-    // --- Data model ---
-    const SLOTS = [
-      { name: 'Alice', color: '#e74c3c' },
-      { name: 'Bob',   color: '#e67e22' },
-      { name: 'Carol', color: '#f1c40f' },
-      { name: 'Dave',  color: '#2ecc71' },
-      { name: 'Eve',   color: '#1abc9c' },
-      { name: 'Frank', color: '#3498db' },
-      { name: 'Grace', color: '#9b59b6' },
-      { name: 'Hank',  color: '#e91e63' },
+    // ─── Task 13.1: Session ID logic ────────────────────────────────────────────
+
+    /**
+     * Generates a UUID v4 string.
+     * Uses crypto.randomUUID() when available; falls back to a manual implementation.
+     * @returns {string} UUID v4 string, e.g. "a1b2c3d4-e5f6-4789-abcd-ef0123456789"
+     */
+    function generateSessionId() {
+      if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+      }
+      // Manual UUID v4 polyfill
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = (Math.random() * 16) | 0;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+      });
+    }
+
+    /**
+     * Reads sessionId from window.location.search.
+     * If absent, generates a new UUID and updates the URL via history.replaceState
+     * (no page reload).
+     * @returns {string} The session ID.
+     */
+    function getSessionId() {
+      const params = new URLSearchParams(window.location.search);
+      let id = params.get('sessionId');
+      if (!id) {
+        id = generateSessionId();
+        params.set('sessionId', id);
+        const newUrl = window.location.pathname + '?' + params.toString();
+        history.replaceState(null, '', newUrl);
+      }
+      return id;
+    }
+
+    /**
+     * Builds the full registration URL for register.html with the given session ID.
+     * @param {string} sessionId
+     * @returns {string} Full URL, e.g. "https://example.com/register.html?sessionId=..."
+     */
+    function buildRegistrationUrl(sessionId) {
+      return window.location.origin + '/register.html?sessionId=' + sessionId;
+    }
+
+    // Module-level session ID — set once at script start
+    const sessionId = getSessionId();
+
+    // ─── Task 13.2: Dynamic participants array ───────────────────────────────────
+
+    /** Current list of participant names. */
+    let participants = []; // string array of participant names
+
+    /** Round-robin color palette for wheel slots. */
+    const COLOR_PALETTE = [
+      '#e74c3c', '#e67e22', '#f1c40f', '#2ecc71',
+      '#1abc9c', '#3498db', '#9b59b6', '#e91e63'
     ];
 
-    // --- Physics constants ---
+    /**
+     * Converts a participants name array into a slots array for drawWheel.
+     * Returns a placeholder slot when the array is empty.
+     * @param {string[]} names
+     * @returns {Array<{name: string, color: string}>}
+     */
+    function participantsToSlots(names) {
+      if (names.length === 0) {
+        return [{ name: 'No participants', color: '#cccccc' }];
+      }
+      return names.map(function(name, i) {
+        return { name: name, color: COLOR_PALETTE[i % COLOR_PALETTE.length] };
+      });
+    }
+
+    // ─── Physics constants (preserved from original) ─────────────────────────────
+
     const FRICTION       = 0.985;  // velocity multiplier per frame (< 1)
     const STOP_THRESHOLD = 0.001;  // radians/frame below which we consider stopped
     const MIN_VELOCITY   = 0.3;    // guarantees ≥ 3 full rotations over ≥ 3 s at 60 fps
 
-    // --- Application state ---
+    // ─── Application state ───────────────────────────────────────────────────────
+
     let rotationAngle = 0;   // current rotation in radians
     let velocity      = 0;   // radians per frame
     let spinning      = false;
 
-    // --- Pure functions ---
+    // Task 13.4: WebSocket state and event queue
+    let ws         = null;
+    let eventQueue = []; // events queued during spin
+
+    // ─── Pure functions (preserved from original) ────────────────────────────────
 
     /**
      * Returns the index of the slot aligned with the arrow (angle 0) after
@@ -122,35 +317,30 @@
       const TWO_PI = 2 * Math.PI;
       // Normalize to [0, 2π)
       const normalized = ((rotationAngle % TWO_PI) + TWO_PI) % TWO_PI;
-      // The arrow is at angle 0. The wheel has rotated by `normalized`.
-      // Slot 0 starts at angle 0 and spans [0, 2π/slotCount).
-      // After rotation, slot i occupies angles [i * slotAngle + normalized, (i+1) * slotAngle + normalized).
-      // We want the slot whose range contains angle 0 (mod 2π).
-      // Equivalently: which slot index i satisfies (0 - normalized) mod 2π in [i*slotAngle, (i+1)*slotAngle)?
-      const slotAngle = TWO_PI / slotCount;
-      const index = Math.floor(((TWO_PI - normalized) % TWO_PI) / slotAngle);
+      const slotAngle  = TWO_PI / slotCount;
+      const index      = Math.floor(((TWO_PI - normalized) % TWO_PI) / slotAngle);
       return index % slotCount;
     }
 
     /**
      * Draws the prize wheel onto the canvas.
      *
-     * @param {CanvasRenderingContext2D} ctx - The 2D rendering context.
-     * @param {number} cx            - X coordinate of the wheel center.
-     * @param {number} cy            - Y coordinate of the wheel center.
-     * @param {number} radius        - Radius of the wheel in pixels.
-     * @param {Array<{name: string, color: string}>} slots - Array of slot objects.
-     * @param {number} rotationAngle - Current rotation offset in radians.
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {number} cx
+     * @param {number} cy
+     * @param {number} radius
+     * @param {Array<{name: string, color: string}>} slots
+     * @param {number} rotationAngle
      */
     function drawWheel(ctx, cx, cy, radius, slots, rotationAngle) {
-      const TWO_PI   = 2 * Math.PI;
+      const TWO_PI    = 2 * Math.PI;
       const slotAngle = TWO_PI / slots.length;
 
       slots.forEach(function(slot, i) {
         const startAngle = rotationAngle + i * slotAngle;
         const endAngle   = rotationAngle + (i + 1) * slotAngle;
 
-        // --- Draw wedge ---
+        // Draw wedge
         ctx.beginPath();
         ctx.moveTo(cx, cy);
         ctx.arc(cx, cy, radius, startAngle, endAngle);
@@ -163,7 +353,7 @@
         ctx.lineWidth   = 1;
         ctx.stroke();
 
-        // --- Draw participant name ---
+        // Draw participant name
         const midAngle = rotationAngle + (i + 0.5) * slotAngle;
         const textX    = cx + Math.cos(midAngle) * radius * 0.65;
         const textY    = cy + Math.sin(midAngle) * radius * 0.65;
@@ -182,27 +372,24 @@
 
     /**
      * Draws the fixed arrow indicator at the right edge of the wheel.
-     * The arrow is a filled triangle pointing left (toward the wheel center),
-     * with its tip overlapping the wheel's outer edge.
      *
-     * @param {CanvasRenderingContext2D} ctx - The 2D rendering context.
-     * @param {number} cx     - X coordinate of the wheel center.
-     * @param {number} cy     - Y coordinate of the wheel center.
-     * @param {number} radius - Radius of the wheel in pixels.
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {number} cx
+     * @param {number} cy
+     * @param {number} radius
      */
     function drawArrow(ctx, cx, cy, radius) {
-      // Tip overlaps the wheel edge; base extends to the right
       const tipX  = cx + radius - 10;
       const baseX = cx + radius + 20;
       const halfH = 15;
 
       ctx.beginPath();
-      ctx.moveTo(tipX, cy);              // tip — points into the wheel
-      ctx.lineTo(baseX, cy - halfH);     // top-right corner
-      ctx.lineTo(baseX, cy + halfH);     // bottom-right corner
+      ctx.moveTo(tipX, cy);
+      ctx.lineTo(baseX, cy - halfH);
+      ctx.lineTo(baseX, cy + halfH);
       ctx.closePath();
 
-      ctx.fillStyle = '#2c3e50';
+      ctx.fillStyle   = '#2c3e50';
       ctx.fill();
 
       ctx.strokeStyle = '#fff';
@@ -210,37 +397,170 @@
       ctx.stroke();
     }
 
-    // --- DOM references (assigned in DOMContentLoaded) ---
-    let canvas, ctx, spinBtn, winnerDisplay;
+    // ─── DOM references (assigned in DOMContentLoaded) ───────────────────────────
+
+    let canvas, ctx, spinBtn, clearBtn, winnerDisplay;
+
+    // ─── Task 13.4: redrawWheel helper ───────────────────────────────────────────
+
+    /**
+     * Clears the canvas and redraws the wheel with the current participants
+     * and rotation angle.
+     */
+    function redrawWheel() {
+      if (!canvas || !ctx) return;
+      const cx     = canvas.width  / 2;
+      const cy     = canvas.height / 2;
+      const radius = Math.min(canvas.width, canvas.height) / 2 - 30;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawWheel(ctx, cx, cy, radius, participantsToSlots(participants), rotationAngle);
+      drawArrow(ctx, cx, cy, radius);
+      updateParticipantCount();
+    }
+
+    /**
+     * Updates the participant count display.
+     */
+    function updateParticipantCount() {
+      const countEl = document.getElementById('participantCount');
+      if (countEl) {
+        const n = participants.length;
+        countEl.textContent = n + ' participant' + (n === 1 ? '' : 's') + ' registered';
+      }
+    }
+
+    // ─── Task 13.3: QR code rendering ────────────────────────────────────────────
+
+    /**
+     * Renders a QR code into #qrcode for the given URL.
+     * @param {string} url
+     */
+    function renderQRCode(url) {
+      const container = document.getElementById('qrcode');
+      if (!container) return;
+      // Clear any previously rendered QR code
+      container.innerHTML = '';
+      // QRCode is provided by the qrcodejs CDN script
+      new QRCode(container, {
+        text:   url,
+        width:  200,
+        height: 200
+      });
+      const label = document.getElementById('qrLabel');
+      if (label) {
+        label.textContent = url;
+      }
+    }
+
+    // ─── Task 13.4: WebSocket connection ─────────────────────────────────────────
+
+    /**
+     * Applies a single participantAdded or participantRemoved event to the
+     * participants array and redraws the wheel.
+     * @param {{ type: string, name: string }} event
+     */
+    function applyParticipantEvent(event) {
+      if (event.type === 'participantAdded') {
+        if (!participants.includes(event.name)) {
+          participants.push(event.name);
+        }
+      } else if (event.type === 'participantRemoved') {
+        participants = participants.filter(function(n) { return n !== event.name; });
+      }
+      redrawWheel();
+    }
+
+    /**
+     * Opens a WebSocket connection to the WebSocket API for the given session.
+     * Handles participantAdded and participantRemoved messages in real time.
+     * Events received while spinning are queued and applied after the spin stops.
+     * Shows an error banner on connection failure but continues in offline mode.
+     * @param {string} sessionId
+     */
+    function connectWebSocket(sessionId) {
+      const wsUrl = (window.WEBSOCKET_URL || '') + '?sessionId=' + sessionId;
+      try {
+        ws = new WebSocket(wsUrl);
+      } catch (e) {
+        document.getElementById('wsError').style.display = '';
+        return;
+      }
+
+      ws.addEventListener('message', function(event) {
+        let data;
+        try {
+          data = JSON.parse(event.data);
+        } catch (e) {
+          return; // ignore malformed messages
+        }
+
+        if (data.type === 'participantAdded' || data.type === 'participantRemoved') {
+          if (spinning) {
+            eventQueue.push(data);
+          } else {
+            applyParticipantEvent(data);
+          }
+        }
+        // winner messages from the server are informational on this page; no action needed
+      });
+
+      ws.addEventListener('error', function() {
+        document.getElementById('wsError').style.display = '';
+      });
+
+      ws.addEventListener('close', function(event) {
+        // Only show the banner for unexpected closes (not a clean close initiated by us)
+        if (!event.wasClean) {
+          document.getElementById('wsError').style.display = '';
+        }
+      });
+    }
+
+    // ─── Animation loop (updated for dynamic participants + event queue) ─────────
 
     /**
      * Animation loop driven by requestAnimationFrame.
      * Applies friction each frame, redraws the wheel, and stops when
      * velocity drops below STOP_THRESHOLD.
+     * After stopping: determines winner, broadcasts over WebSocket, drains event queue.
      *
-     * @param {DOMHighResTimeStamp} timestamp - Provided by requestAnimationFrame (unused directly).
+     * @param {DOMHighResTimeStamp} timestamp
      */
     function animationLoop(timestamp) {
-      // Apply friction deceleration
       velocity      *= FRICTION;
       rotationAngle += velocity;
 
-      // Recompute geometry from canvas dimensions each frame
       const cx     = canvas.width  / 2;
       const cy     = canvas.height / 2;
       const radius = Math.min(canvas.width, canvas.height) / 2 - 30;
 
-      // Clear and redraw
+      const slots = participantsToSlots(participants);
+
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      drawWheel(ctx, cx, cy, radius, SLOTS, rotationAngle);
+      drawWheel(ctx, cx, cy, radius, slots, rotationAngle);
       drawArrow(ctx, cx, cy, radius);
 
       if (velocity < STOP_THRESHOLD) {
-        // Wheel has stopped — determine and announce the winner
+        // Wheel has stopped
         spinning = false;
-        const winnerIdx = getWinnerIndex(rotationAngle, SLOTS.length);
-        winnerDisplay.textContent = 'Winner: ' + SLOTS[winnerIdx].name;
-        spinBtn.disabled = false;
+
+        // Determine winner
+        const winnerIdx  = getWinnerIndex(rotationAngle, slots.length);
+        const winnerName = slots[winnerIdx].name;
+        winnerDisplay.textContent = 'Winner: ' + winnerName;
+
+        // Task 13.5: Broadcast winner over WebSocket
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ action: 'winner', sessionId: sessionId, name: winnerName }));
+        }
+
+        // Re-enable buttons
+        spinBtn.disabled  = false;
+        clearBtn.disabled = false;
+
+        // Task 13.4: Drain the event queue
+        eventQueue.forEach(applyParticipantEvent);
+        eventQueue = [];
       } else {
         requestAnimationFrame(animationLoop);
       }
@@ -248,42 +568,80 @@
 
     /**
      * Initiates a spin when the user clicks the Spin button.
-     * Guards against double-clicks, sets a random initial velocity,
-     * transitions to SPINNING state, and kicks off the animation loop.
+     * Guards against double-clicks and requires at least 2 participants.
      */
     function startSpin() {
-      if (spinning) return;  // guard against double-click (belt-and-suspenders)
+      if (spinning) return;
 
-      // Random extra rotation in [0, 2π) for unpredictability
-      const randomExtra = Math.random() * 2 * Math.PI;
+      // Task 13.2: Require at least 2 participants
+      if (participants.length < 2) return;
 
-      // Set velocity: MIN_VELOCITY + small random boost for variety
       velocity = MIN_VELOCITY + Math.random() * 0.1;
 
-      // Transition to SPINNING state
       spinning = true;
-      spinBtn.disabled = true;
+      spinBtn.disabled  = true;
+      clearBtn.disabled = true;
       winnerDisplay.textContent = '';
 
       requestAnimationFrame(animationLoop);
     }
 
-    // --- DOM wiring ---
+    // ─── Task 13.5: Clear participants ───────────────────────────────────────────
+
+    /**
+     * Calls DELETE /register with the current session ID to remove all participants.
+     * On success, empties the local participants array and redraws the wheel.
+     * On failure, shows an error message.
+     */
+    function clearParticipants() {
+      const REST_API_URL = window.REST_API_URL || '';
+      const errorBanner  = document.getElementById('errorBanner');
+
+      fetch(REST_API_URL + '/register', {
+        method:  'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ sessionId: sessionId })
+      })
+        .then(function(response) {
+          if (!response.ok) {
+            throw new Error('Server returned ' + response.status);
+          }
+          participants = [];
+          redrawWheel();
+          errorBanner.style.display = 'none';
+        })
+        .catch(function(err) {
+          errorBanner.textContent  = '⚠️ Failed to clear participants: ' + err.message;
+          errorBanner.style.display = '';
+        });
+    }
+
+    // ─── Task 13.6: Load existing participants on page load ──────────────────────
+    // TODO: add GET /register endpoint to load existing participants on reconnect
+    // The REST API currently only has POST and DELETE /register.
+    // For the MVP, we start with an empty participants array.
+
+    // ─── DOM wiring ──────────────────────────────────────────────────────────────
+
     document.addEventListener('DOMContentLoaded', function() {
-      canvas       = document.getElementById('wheelCanvas');
-      ctx          = canvas.getContext('2d');
-      spinBtn      = document.getElementById('spinBtn');
+      canvas        = document.getElementById('wheelCanvas');
+      ctx           = canvas.getContext('2d');
+      spinBtn       = document.getElementById('spinBtn');
+      clearBtn      = document.getElementById('clearBtn');
       winnerDisplay = document.getElementById('winnerDisplay');
 
-      // Render initial wheel state
-      const cx     = canvas.width  / 2;
-      const cy     = canvas.height / 2;
-      const radius = Math.min(canvas.width, canvas.height) / 2 - 30;
-      drawWheel(ctx, cx, cy, radius, SLOTS, rotationAngle);
-      drawArrow(ctx, cx, cy, radius);
+      // Render initial wheel state (empty → placeholder)
+      redrawWheel();
 
-      // Wire up the Spin button
+      // Task 13.3: Render QR code for the registration URL
+      renderQRCode(buildRegistrationUrl(sessionId));
+
+      // Task 13.4: Connect WebSocket for real-time participant updates
+      connectWebSocket(sessionId);
+
+      // Wire up buttons
       spinBtn.addEventListener('click', startSpin);
+      clearBtn.addEventListener('click', clearParticipants);
     });
   </script>
 </body>

@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Join the Wheel</title>
+  <script src="config.js"></script>
+  <style>
+    /* ── Reset ─────────────────────────────────────────────────────────────── */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* ── Base ───────────────────────────────────────────────────────────────── */
+    body {
+      min-height: 100vh;
+      background-color: #f0f4f8;
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+    }
+
+    /* ── Card ───────────────────────────────────────────────────────────────── */
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.10);
+      padding: 36px 28px;
+      width: 100%;
+      max-width: 480px;
+      text-align: center;
+    }
+
+    .card h1 {
+      font-size: 1.6rem;
+      color: #2c3e50;
+      margin-bottom: 8px;
+    }
+
+    .card .subtitle {
+      font-size: 0.95rem;
+      color: #7f8c8d;
+      margin-bottom: 28px;
+    }
+
+    /* ── Error message ──────────────────────────────────────────────────────── */
+    #errorMsg {
+      display: none;
+      background-color: #fdecea;
+      border: 1px solid #e74c3c;
+      border-radius: 8px;
+      color: #c0392b;
+      font-size: 0.9rem;
+      padding: 12px 14px;
+      margin-bottom: 20px;
+      text-align: left;
+    }
+
+    /* ── Form ───────────────────────────────────────────────────────────────── */
+    #registrationForm {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    #nameInput {
+      width: 100%;
+      padding: 14px 16px;
+      font-size: 16px; /* ≥16px prevents iOS auto-zoom */
+      border: 2px solid #dce1e7;
+      border-radius: 10px;
+      outline: none;
+      transition: border-color 0.2s ease;
+      color: #2c3e50;
+    }
+
+    #nameInput:focus {
+      border-color: #3498db;
+    }
+
+    #submitBtn {
+      width: 100%;
+      padding: 16px;
+      font-size: 1.1rem;
+      font-weight: bold;
+      color: #fff;
+      background-color: #3498db;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+      /* Large touch target for mobile */
+      min-height: 52px;
+    }
+
+    #submitBtn:hover:not(:disabled) {
+      background-color: #2980b9;
+    }
+
+    #submitBtn:disabled {
+      background-color: #95a5a6;
+      cursor: not-allowed;
+    }
+
+    /* ── Confirmation ───────────────────────────────────────────────────────── */
+    #confirmation {
+      display: none;
+      background-color: #eafaf1;
+      border: 1px solid #2ecc71;
+      border-radius: 12px;
+      padding: 24px 20px;
+      color: #1e8449;
+    }
+
+    #confirmation .confirm-icon {
+      font-size: 2.5rem;
+      margin-bottom: 10px;
+    }
+
+    #confirmation .confirm-text {
+      font-size: 1.2rem;
+      font-weight: bold;
+    }
+
+    #confirmation .confirm-sub {
+      font-size: 0.9rem;
+      margin-top: 6px;
+      color: #27ae60;
+    }
+
+    /* ── Winner notification ────────────────────────────────────────────────── */
+    #winnerNotification {
+      display: none;
+      border-radius: 12px;
+      padding: 24px 20px;
+      margin-top: 20px;
+    }
+
+    #winnerNotification.you-won {
+      background-color: #fef9e7;
+      border: 2px solid #f1c40f;
+    }
+
+    #winnerNotification.other-won {
+      background-color: #f4f6f7;
+      border: 1px solid #bdc3c7;
+      color: #2c3e50;
+    }
+
+    #winnerNotification .winner-icon {
+      font-size: 2.5rem;
+      margin-bottom: 10px;
+    }
+
+    #winnerNotification .winner-text {
+      font-size: 1.3rem;
+      font-weight: bold;
+    }
+
+    #winnerNotification.you-won .winner-text {
+      font-size: 1.6rem;
+      color: #b7950b;
+    }
+
+    /* ── WebSocket status ───────────────────────────────────────────────────── */
+    #wsStatus {
+      display: none;
+      font-size: 0.78rem;
+      color: #e67e22;
+      margin-top: 16px;
+      padding: 8px 12px;
+      background-color: #fef5e7;
+      border: 1px solid #f0a500;
+      border-radius: 6px;
+      text-align: left;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🎡 Join the Wheel</h1>
+    <p class="subtitle">Enter your name to be added to the prize wheel.</p>
+
+    <!-- Validation and API error messages -->
+    <div id="errorMsg" role="alert"></div>
+
+    <!-- Registration form -->
+    <form id="registrationForm" novalidate>
+      <input
+        type="text"
+        id="nameInput"
+        placeholder="Your name"
+        autocomplete="name"
+        autocorrect="off"
+        autocapitalize="words"
+        spellcheck="false"
+        maxlength="80"
+        aria-label="Your name"
+      >
+      <button type="submit" id="submitBtn">Join the Wheel</button>
+    </form>
+
+    <!-- Shown after successful registration -->
+    <div id="confirmation" role="status" aria-live="polite">
+      <div class="confirm-icon">🎉</div>
+      <div class="confirm-text">You're on the wheel!</div>
+      <div class="confirm-sub">Wait for the presenter to spin.</div>
+    </div>
+
+    <!-- Shown when a winner is announced -->
+    <div id="winnerNotification" role="status" aria-live="assertive">
+      <div class="winner-icon" id="winnerIcon"></div>
+      <div class="winner-text" id="winnerText"></div>
+    </div>
+
+    <!-- Small WebSocket connection status / error -->
+    <div id="wsStatus" role="status" aria-live="polite"></div>
+  </div>
+
+  <script>
+    // ── Task 14.1: Read sessionId from URL ──────────────────────────────────────
+
+    /**
+     * Reads the sessionId query parameter from the current URL.
+     * Returns null if the parameter is absent.
+     * @returns {string|null}
+     */
+    function getSessionIdFromUrl() {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('sessionId') || null;
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Shows the error message element with the given text.
+     * @param {string} message
+     */
+    function showError(message) {
+      const el = document.getElementById('errorMsg');
+      el.textContent = message;
+      el.style.display = '';
+    }
+
+    /**
+     * Hides the error message element.
+     */
+    function hideError() {
+      const el = document.getElementById('errorMsg');
+      el.style.display = 'none';
+      el.textContent = '';
+    }
+
+    // ── Module-level state ───────────────────────────────────────────────────────
+
+    /** The session ID read from the URL (null if absent). */
+    const sessionId = getSessionIdFromUrl();
+
+    /** The name the participant registered with (set after successful POST). */
+    let myName = null;
+
+    // ── Task 14.1: Page initialisation ──────────────────────────────────────────
+
+    document.addEventListener('DOMContentLoaded', function () {
+      if (!sessionId) {
+        // No sessionId in URL — show error and hide the form
+        showError('Invalid registration link. Please scan the QR code again.');
+        document.getElementById('registrationForm').style.display = 'none';
+        return;
+      }
+
+      // Wire up form submission
+      document.getElementById('registrationForm')
+        .addEventListener('submit', handleFormSubmit);
+    });
+
+    // ── Task 14.2: Registration form submission ──────────────────────────────────
+
+    /**
+     * Handles the registration form submit event.
+     * Validates the name, calls POST /register, and reacts to the response.
+     * @param {Event} event
+     */
+    function handleFormSubmit(event) {
+      event.preventDefault();
+
+      const nameInput = document.getElementById('nameInput');
+      const submitBtn = document.getElementById('submitBtn');
+      const name = nameInput.value.trim();
+
+      // Client-side validation: name must not be empty
+      if (!name) {
+        showError('Please enter your name before joining.');
+        nameInput.focus();
+        return;
+      }
+
+      hideError();
+
+      // Disable button while request is in flight
+      submitBtn.disabled = true;
+
+      const REST_API_URL = window.REST_API_URL || '';
+
+      fetch(REST_API_URL + '/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: sessionId, name: name })
+      })
+        .then(function (response) {
+          if (response.ok) {
+            // HTTP 200 — registration succeeded
+            return response.json().then(function () {
+              onRegistrationSuccess(name);
+            });
+          }
+
+          // Non-2xx response — parse error body
+          return response.json()
+            .catch(function () { return {}; })
+            .then(function (body) {
+              if (response.status >= 400 && response.status < 500) {
+                // HTTP 400 — validation error from server
+                showError(body.error || 'Registration failed. Please check your input and try again.');
+              } else {
+                // HTTP 500 or other server error
+                showError('Something went wrong. Please try again.');
+              }
+              submitBtn.disabled = false;
+            });
+        })
+        .catch(function () {
+          // Network error
+          showError('Something went wrong. Please try again.');
+          submitBtn.disabled = false;
+        });
+    }
+
+    /**
+     * Called after a successful POST /register response.
+     * Hides the form, shows the confirmation, stores the name, and opens WebSocket.
+     * @param {string} name
+     */
+    function onRegistrationSuccess(name) {
+      myName = name;
+
+      // Hide form, show confirmation
+      document.getElementById('registrationForm').style.display = 'none';
+      document.getElementById('confirmation').style.display = '';
+
+      // Task 14.3: Connect WebSocket to receive winner notification
+      connectWebSocket(sessionId);
+    }
+
+    // ── Task 14.3: WebSocket connection and winner notification ─────────────────
+
+    /**
+     * Opens a WebSocket connection to the WebSocket API for the given session.
+     * Listens for winner events and calls handleWinnerEvent.
+     * Shows a small status message on error or unexpected close.
+     * @param {string} sessionId
+     */
+    function connectWebSocket(sessionId) {
+      const wsUrl = (window.WEBSOCKET_URL || '') + '?sessionId=' + sessionId;
+      let ws;
+
+      try {
+        ws = new WebSocket(wsUrl);
+      } catch (e) {
+        showWsStatus('Connection lost. You may not receive the winner notification.');
+        return;
+      }
+
+      ws.addEventListener('message', function (event) {
+        let data;
+        try {
+          data = JSON.parse(event.data);
+        } catch (e) {
+          return; // ignore malformed messages
+        }
+
+        if (data.type === 'winner') {
+          handleWinnerEvent(data.name, myName);
+        }
+      });
+
+      ws.addEventListener('error', function () {
+        showWsStatus('Connection lost. You may not receive the winner notification.');
+      });
+
+      ws.addEventListener('close', function (event) {
+        if (!event.wasClean) {
+          showWsStatus('Connection lost. You may not receive the winner notification.');
+        }
+      });
+    }
+
+    /**
+     * Handles a winner event received over WebSocket.
+     * Shows a celebration message if the winner is the current participant,
+     * or the winner's name otherwise.
+     * @param {string} winnerName - The name of the winner from the server.
+     * @param {string|null} myName - The name this participant registered with.
+     */
+    function handleWinnerEvent(winnerName, myName) {
+      const notification = document.getElementById('winnerNotification');
+      const icon         = document.getElementById('winnerIcon');
+      const text         = document.getElementById('winnerText');
+
+      if (winnerName === myName) {
+        // This participant won — celebratory styling
+        notification.className = 'you-won';
+        icon.textContent = '🏆';
+        text.textContent = '🎉 You won! Congratulations!';
+      } else {
+        // Someone else won — neutral styling
+        notification.className = 'other-won';
+        icon.textContent = '🎡';
+        text.textContent = 'The winner is: ' + winnerName;
+      }
+
+      notification.style.display = '';
+    }
+
+    /**
+     * Shows a small status message in #wsStatus.
+     * @param {string} message
+     */
+    function showWsStatus(message) {
+      const el = document.getElementById('wsStatus');
+      el.textContent = message;
+      el.style.display = '';
+    }
+  </script>
+</body>
+</html>

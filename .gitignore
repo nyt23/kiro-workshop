@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+lambdas/node_modules/
+
+# SAM build output
+.aws-sam/
+
+# Environment / config (update with real values after deploy)
+# config.js  # uncomment if you don't want to commit placeholder config
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
